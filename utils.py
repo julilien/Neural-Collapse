@@ -6,6 +6,9 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.optim.lr_scheduler as lrs
 
+from label_smoothing import LabelSmoothingLossCanonical
+
+
 def set_seed(manualSeed=666):
     random.seed(manualSeed)
     np.random.seed(manualSeed)
@@ -73,6 +76,8 @@ def make_criterion(args):
         criterion = nn.CrossEntropyLoss()
     elif args.loss == 'MSE':
         criterion = nn.MSELoss()
+    elif args.loss == 'LS':
+        criterion = LabelSmoothingLossCanonical(args.ls_alpha)
 
     return criterion
 

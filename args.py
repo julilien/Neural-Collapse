@@ -52,6 +52,8 @@ def parse_train_args():
     parser.add_argument('--history_size', type=int, default=10, help='history size for LBFGS')
     parser.add_argument('--ghost_batch', type=int, dest='ghost_batch', default=128, help='ghost size for LBFGS variants')
 
+    parser.add_argument('--ls_alpha', type=float, default=0.1, help='Alpha parameter for label smoothing.')
+
     args = parser.parse_args()
 
     if args.uid is None:

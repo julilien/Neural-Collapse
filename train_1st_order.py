@@ -43,7 +43,7 @@ def trainer(args, model, trainloader, epoch_id, criterion, optimizer, scheduler,
         if args.sep_decay:
             loss = loss_compute(args, model, criterion, outputs, targets)
         else:
-            if args.loss == 'CrossEntropy':
+            if args.loss in ['CrossEntropy', 'LS']:
                 loss = criterion(outputs[0], targets)
             elif args.loss == 'MSE':
                 loss = criterion(outputs[0], nn.functional.one_hot(targets).type(torch.FloatTensor).to(args.device))
