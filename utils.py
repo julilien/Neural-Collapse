@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.optim.lr_scheduler as lrs
 
-from label_smoothing import LabelSmoothingLossCanonical
+from label_smoothing import LabelSmoothingLossCanonical, LabelRelaxationLoss
 
 
 def set_seed(manualSeed=666):
@@ -78,6 +78,8 @@ def make_criterion(args):
         criterion = nn.MSELoss()
     elif args.loss == 'LS':
         criterion = LabelSmoothingLossCanonical(args.ls_alpha)
+    elif args.loss == "LR":
+        criterion = LabelRelaxationLoss(args.lr_alpha)
 
     return criterion
 
