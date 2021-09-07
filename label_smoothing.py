@@ -37,10 +37,6 @@ class LabelRelaxationLoss(nn.Module):
 
         self.num_classes = num_classes
 
-    @staticmethod
-    def non_log_kl_div(pred, target):
-        return torch.sum(target * torch.log((target + 1e-7) / (pred + 1e-7)), dim=-1)
-
     def forward(self, pred, target):
         if self.logits_provided:
             pred = pred.softmax(dim=self.dim)
@@ -53,8 +49,7 @@ class LabelRelaxationLoss(nn.Module):
         sum_y_hat_prime = torch.sum((torch.ones_like(target) - target) * pred, dim=-1)
         pred_hat = self.alpha * pred / torch.unsqueeze(sum_y_hat_prime, dim=-1)
         target_credal = torch.where(target > self.gz_threshold, torch.ones_like(target) - self.alpha, pred_hat)
-        # divergence = nn.functional.kl_div(pred.log(), target_credal, log_target=False)
-        divergence = LabelRelaxationLoss.non_log_kl_div(pred, target_credal)
+        divergence = nn.functional.kl_div(pred.log(), target_credal, log_target=False)
 
         pred = torch.sum(pred * target, dim=-1)
 
