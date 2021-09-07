@@ -2,7 +2,7 @@ import torch
 import pickle
 import numpy as np
 from torch.utils.data import DataLoader
-from torchvision.datasets import CIFAR10, MNIST, FashionMNIST, CIFAR100
+from torchvision.datasets import CIFAR10, MNIST, FashionMNIST, CIFAR100, SVHN
 import torchvision.transforms as transforms
 from torch.utils.data.sampler import SubsetRandomSampler
 
@@ -47,6 +47,19 @@ def make_dataset(dataset_name, data_dir, batch_size=128, sample_size=None, SOTA=
             ]))
         num_classes = 10
     # Added
+    elif dataset_name == 'svhn':
+        print('Dataset: SVHN.')
+
+        trainset = SVHN(root=data_dir, split="train", download=True, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010]),
+        ]))
+
+        testset = SVHN(root=data_dir, split="test", download=True, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010]),
+        ]))
+        num_classes = 10
     elif dataset_name == 'cifar100':
         print('Dataset: CIFAR-100.')
 
