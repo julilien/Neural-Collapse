@@ -2,7 +2,7 @@ import torch
 import pickle
 import numpy as np
 from torch.utils.data import DataLoader
-from torchvision.datasets import CIFAR10, MNIST
+from torchvision.datasets import CIFAR10, MNIST, FashionMNIST, CIFAR100
 import torchvision.transforms as transforms
 from torch.utils.data.sampler import SubsetRandomSampler
 
@@ -45,6 +45,37 @@ def make_dataset(dataset_name, data_dir, batch_size=128, sample_size=None, SOTA=
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010]),
             ]))
+        num_classes = 10
+    # Added
+    elif dataset_name == 'cifar100':
+        print('Dataset: CIFAR-100.')
+
+        trainset = CIFAR100(root=data_dir, train=True, download=True, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010]),
+        ]))
+
+        testset = CIFAR100(root=data_dir, train=False, download=True, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010]),
+        ]))
+        num_classes = 100
+    elif dataset_name == "fashionmnist":
+        print('Dataset: Fashion-MNIST.')
+        # TODO: Test this
+        trainset = FashionMNIST(root=data_dir, train=True, download=True, transform=transforms.Compose([
+            transforms.Grayscale(3),
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ]))
+
+        testset = FashionMNIST(root=data_dir, train=False, download=True, transform=transforms.Compose([
+            transforms.Grayscale(3),
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ]))
         num_classes = 10
     elif dataset_name == 'mnist':
         print('Dataset: MNIST.')

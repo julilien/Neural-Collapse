@@ -4,6 +4,7 @@ import torch
 
 import models
 from models.res_adapt import ResNet18_adapt
+from models.vgg import get_vgg13
 from utils import *
 from args import parse_train_args
 from datasets import make_dataset
@@ -103,6 +104,8 @@ def main():
         model = models.__dict__[args.model](hidden = args.width, depth = args.depth, fc_bias=args.bias, num_classes=num_classes).to(device)
     elif args.model == "ResNet18_adapt":
         model = ResNet18_adapt(width = args.width, num_classes=num_classes, fc_bias=args.bias).to(device)
+    elif args.model == "VGG13":
+        model = get_vgg13(num_classes=num_classes).to(device)
     else:
         model = models.__dict__[args.model](num_classes=num_classes, fc_bias=args.bias, ETF_fc=args.ETF_fc, fixdim=args.fixdim, SOTA=args.SOTA).to(device)
 
