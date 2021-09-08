@@ -10,6 +10,7 @@ from utils import *
 from args import parse_eval_args
 from datasets import make_dataset
 
+import torch.nn.functional as F
 
 MNIST_TRAIN_SAMPLES = (5923, 6742, 5958, 6131, 5842, 5421, 5918, 6265, 5851, 5949)
 MNIST_TEST_SAMPLES = (980, 1135, 1032, 1010, 982, 892, 958, 1028, 974, 1009)
@@ -79,7 +80,6 @@ def compute_info(args, model, fc_features, dataloader, isTrain=True):
 
 
 def compute_Sigma_W(args, model, fc_features, mu_c_dict, dataloader, isTrain=True):
-
     Sigma_W = 0
     for batch_idx, (inputs, targets) in enumerate(dataloader):
 
@@ -150,6 +150,43 @@ def compute_Wh_b_relation(W, mu_G, b):
     return res_b.detach().cpu().numpy().item()
 
 
+def compute_ECE(args, model, dataloader, n_bins=15):
+    bin_boundaries = torch.linspace(0, 1, n_bins + 1)
+    bin_lowers = bin_boundaries[:-1]
+    bin_uppers = bin_boundaries[1:]
+
+    # TODO: Compute expected calibration error
+    logits_list = []
+    labels_list = []
+
+    for batch_idx, (inputs, targets) in enumerate(dataloader):
+        inputs, targets = inputs.to(args.device), targets.to(args.device)
+
+        with torch.no_grad():
+            outputs = model(inputs)[0].data
+            logits_list.append(F.softmax(outputs, dim=-1))
+            labels_list.append(targets.data)
+
+    # Create tensors
+    logits_list = torch.cat(logits_list).to(args.device)
+    labels_list = torch.cat(labels_list).to(args.device)
+
+    confidences, predictions = torch.max(logits_list, 1)
+    accuracies = predictions.eq(labels_list)
+
+    ece = torch.zeros(1, device=args.device)
+    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
+        # Calculated |confidence - accuracy| in each bin
+        in_bin = confidences.gt(bin_lower.item()) * confidences.le(bin_upper.item())
+        prop_in_bin = in_bin.float().mean()
+        if prop_in_bin.item() > 0:
+            accuracy_in_bin = accuracies[in_bin].float().mean()
+            avg_confidence_in_bin = confidences[in_bin].mean()
+            ece += torch.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
+
+    return ece
+
+
 def main():
     args = parse_eval_args()
 
@@ -160,13 +197,15 @@ def main():
     args.device = device
 
     trainloader, testloader, num_classes = make_dataset(args.dataset, args.data_dir, args.batch_size, args.sample_size)
-    
+
     if args.model == "MLP":
-        model = models.__dict__[args.model](hidden = args.width, depth = args.depth, fc_bias=args.bias, num_classes=num_classes).to(device)
+        model = models.__dict__[args.model](hidden=args.width, depth=args.depth, fc_bias=args.bias,
+                                            num_classes=num_classes).to(device)
     elif args.model == "ResNet18_adapt":
-        model = ResNet18_adapt(width = args.width, num_classes=num_classes, fc_bias=args.bias).to(device)
+        model = ResNet18_adapt(width=args.width, num_classes=num_classes, fc_bias=args.bias).to(device)
     else:
-        model = models.__dict__[args.model](num_classes=num_classes, fc_bias=args.bias, ETF_fc=args.ETF_fc, fixdim=args.fixdim, SOTA=args.SOTA).to(device)
+        model = models.__dict__[args.model](num_classes=num_classes, fc_bias=args.bias, ETF_fc=args.ETF_fc,
+                                            fixdim=args.fixdim, SOTA=args.SOTA).to(device)
 
     fc_features = FCFeatures()
     model.fc.register_forward_pre_hook(fc_features)
@@ -184,7 +223,9 @@ def main():
         'train_acc1': [],
         'train_acc5': [],
         'test_acc1': [],
-        'test_acc5': []
+        'test_acc5': [],
+        'ece_metric_train': [],
+        'ece_metric_test': []
     }
 
     logfile = open('%s/test_log.txt' % (args.load_path), 'w')
@@ -199,8 +240,10 @@ def main():
             if 'fc.bias' in n:
                 b = p
 
-        mu_G_train, mu_c_dict_train, train_acc1, train_acc5 = compute_info(args, model, fc_features, trainloader, isTrain=True)
-        mu_G_test, mu_c_dict_test, test_acc1, test_acc5 = compute_info(args, model, fc_features, testloader, isTrain=False)
+        mu_G_train, mu_c_dict_train, train_acc1, train_acc5 = compute_info(args, model, fc_features, trainloader,
+                                                                           isTrain=True)
+        mu_G_test, mu_c_dict_test, test_acc1, test_acc5 = compute_info(args, model, fc_features, testloader,
+                                                                       isTrain=False)
 
         Sigma_W = compute_Sigma_W(args, model, fc_features, mu_c_dict_train, trainloader, isTrain=True)
         # Sigma_W_test_norm = compute_Sigma_W(args, model, fc_features, mu_c_dict_train, testloader, isTrain=False)
@@ -212,12 +255,18 @@ def main():
         if args.bias:
             Wh_b_relation_metric = compute_Wh_b_relation(W, mu_G_train, b)
         else:
-            Wh_b_relation_metric = compute_Wh_b_relation(W, mu_G_train, torch.zeros((W.shape[0], )))
+            Wh_b_relation_metric = compute_Wh_b_relation(W, mu_G_train, torch.zeros((W.shape[0],)))
+
+        ece_metric_train = compute_ECE(args, model, trainloader)
+        ece_metric_test = compute_ECE(args, model, testloader)
 
         info_dict['collapse_metric'].append(collapse_metric)
         info_dict['ETF_metric'].append(ETF_metric)
         info_dict['WH_relation_metric'].append(WH_relation_metric)
         info_dict['Wh_b_relation_metric'].append(Wh_b_relation_metric)
+
+        info_dict['ece_metric_train'].append(ece_metric_train)
+        info_dict['ece_metric_test'].append(ece_metric_test)
 
         info_dict['W'].append((W.detach().cpu().numpy()))
         if args.bias:
@@ -232,12 +281,99 @@ def main():
         info_dict['test_acc1'].append(test_acc1)
         info_dict['test_acc5'].append(test_acc5)
 
-        print_and_save('[epoch: %d] | train top1: %.4f | train top5: %.4f | test top1: %.4f | test top5: %.4f ' %
-                       (i + 1, train_acc1, train_acc5, test_acc1, test_acc5), logfile)
+        print_and_save(
+            '[epoch: %d] | train top1: %.4f | train top5: %.4f | test top1: %.4f | test top5: %.4f | train ECE: %.4f | test ECE: %.4f ' %
+            (i + 1, train_acc1, train_acc5, test_acc1, test_acc5, ece_metric_train, ece_metric_test), logfile)
 
+    with open(args.load_path + 'info.pkl', 'wb') as f:
+        pickle.dump(info_dict, f)
+
+def add_ece():
+    args = parse_eval_args()
+
+    if args.load_path is None:
+        sys.exit('Need to input the path to a pre-trained model!')
+
+    device = torch.device("cuda:" + str(args.gpu_id) if torch.cuda.is_available() else "cpu")
+    args.device = device
+
+    trainloader, testloader, num_classes = make_dataset(args.dataset, args.data_dir, args.batch_size, args.sample_size)
+
+    if args.model == "MLP":
+        model = models.__dict__[args.model](hidden=args.width, depth=args.depth, fc_bias=args.bias,
+                                            num_classes=num_classes).to(device)
+    elif args.model == "ResNet18_adapt":
+        model = ResNet18_adapt(width=args.width, num_classes=num_classes, fc_bias=args.bias).to(device)
+    else:
+        model = models.__dict__[args.model](num_classes=num_classes, fc_bias=args.bias, ETF_fc=args.ETF_fc,
+                                            fixdim=args.fixdim, SOTA=args.SOTA).to(device)
+
+    fc_features = FCFeatures()
+    model.fc.register_forward_pre_hook(fc_features)
+
+    print("Opening file " + args.load_path + 'info.pkl')
+    with open(args.load_path + 'info.pkl', 'rb') as f:
+        info_dict = pickle.load(f)
+
+    logfile = open('%s/test_log2.txt' % (args.load_path), 'w')
+    for i in range(args.epochs):
+
+        model.load_state_dict(torch.load(args.load_path + 'epoch_' + str(i + 1).zfill(3) + '.pth'))
+        model.eval()
+
+        # mu_G_train, mu_c_dict_train, train_acc1, train_acc5 = compute_info(args, model, fc_features, trainloader,
+        #                                                                    isTrain=True)
+        # mu_G_test, mu_c_dict_test, test_acc1, test_acc5 = compute_info(args, model, fc_features, testloader,
+        #                                                                isTrain=False)
+        #
+        # Sigma_W = compute_Sigma_W(args, model, fc_features, mu_c_dict_train, trainloader, isTrain=True)
+        # # Sigma_W_test_norm = compute_Sigma_W(args, model, fc_features, mu_c_dict_train, testloader, isTrain=False)
+        # Sigma_B = compute_Sigma_B(mu_c_dict_train, mu_G_train)
+        #
+        # collapse_metric = np.trace(Sigma_W @ scilin.pinv(Sigma_B)) / len(mu_c_dict_train)
+        # ETF_metric = compute_ETF(W)
+        # WH_relation_metric, H = compute_W_H_relation(W, mu_c_dict_train, mu_G_train)
+        # if args.bias:
+        #     Wh_b_relation_metric = compute_Wh_b_relation(W, mu_G_train, b)
+        # else:
+        #     Wh_b_relation_metric = compute_Wh_b_relation(W, mu_G_train, torch.zeros((W.shape[0],)))
+
+        ece_metric_train = compute_ECE(args, model, trainloader)
+        ece_metric_test = compute_ECE(args, model, testloader)
+
+        # info_dict['collapse_metric'].append(collapse_metric)
+        # info_dict['ETF_metric'].append(ETF_metric)
+        # info_dict['WH_relation_metric'].append(WH_relation_metric)
+        # info_dict['Wh_b_relation_metric'].append(Wh_b_relation_metric)
+
+        info_dict["ece_metric_train"] = []
+        info_dict["ece_metric_test"] = []
+
+        info_dict['ece_metric_train'].append(ece_metric_train)
+        info_dict['ece_metric_test'].append(ece_metric_test)
+
+        # info_dict['W'].append((W.detach().cpu().numpy()))
+        # if args.bias:
+        #     info_dict['b'].append(b.detach().cpu().numpy())
+        # info_dict['H'].append(H.detach().cpu().numpy())
+        #
+        # info_dict['mu_G_train'].append(mu_G_train.detach().cpu().numpy())
+        # # info_dict['mu_G_test'].append(mu_G_test.detach().cpu().numpy())
+        #
+        # info_dict['train_acc1'].append(train_acc1)
+        # info_dict['train_acc5'].append(train_acc5)
+        # info_dict['test_acc1'].append(test_acc1)
+        # info_dict['test_acc5'].append(test_acc5)
+
+        print_and_save(
+            '[epoch: %d] | train top1: %.4f | train top5: %.4f | test top1: %.4f | test top5: %.4f | train ECE: %.4f | test ECE: %.4f ' %
+            (i + 1, info_dict['train_acc1'][i], info_dict['train_acc5'][i], info_dict['test_acc1'][i], info_dict['test_acc5'][i], ece_metric_train, ece_metric_test), logfile)
+
+    # TODO: Uncomment me
     with open(args.load_path + 'info.pkl', 'wb') as f:
         pickle.dump(info_dict, f)
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    add_ece()
