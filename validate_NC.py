@@ -1,3 +1,4 @@
+import gc
 import sys
 import pickle
 
@@ -16,6 +17,11 @@ MNIST_TRAIN_SAMPLES = (5923, 6742, 5958, 6131, 5842, 5421, 5918, 6265, 5851, 594
 MNIST_TEST_SAMPLES = (980, 1135, 1032, 1010, 982, 892, 958, 1028, 974, 1009)
 CIFAR10_TRAIN_SAMPLES = 10 * (5000,)
 CIFAR10_TEST_SAMPLES = 10 * (1000,)
+
+SVHN_TRAIN_SAMPLES = (4948, 13861, 10585, 8497, 7458, 6882, 5727, 5595, 5045, 4659)
+SVHN_TEST_SAMPLES = (1744, 5099, 4149, 2882, 2523, 2384, 1977, 2019, 1660, 1595)
+FASHION_MNIST_TRAIN_SAMPLES = 10 * (6000,)
+FASHION_MNIST_TEST_SAMPLES = 10 * (1000,)
 
 
 class FCFeatures:
@@ -66,6 +72,24 @@ def compute_info(args, model, fc_features, dataloader, isTrain=True):
             mu_G /= sum(MNIST_TEST_SAMPLES)
             for i in range(len(MNIST_TEST_SAMPLES)):
                 mu_c_dict[i] /= MNIST_TEST_SAMPLES[i]
+    elif args.dataset == 'fashionmnist':
+        if isTrain:
+            mu_G /= sum(FASHION_MNIST_TRAIN_SAMPLES)
+            for i in range(len(FASHION_MNIST_TRAIN_SAMPLES)):
+                mu_c_dict[i] /= FASHION_MNIST_TRAIN_SAMPLES[i]
+        else:
+            mu_G /= sum(FASHION_MNIST_TEST_SAMPLES)
+            for i in range(len(FASHION_MNIST_TEST_SAMPLES)):
+                mu_c_dict[i] /= FASHION_MNIST_TEST_SAMPLES[i]
+    elif args.dataset == 'svhn':
+        if isTrain:
+            mu_G /= sum(SVHN_TRAIN_SAMPLES)
+            for i in range(len(SVHN_TRAIN_SAMPLES)):
+                mu_c_dict[i] /= SVHN_TRAIN_SAMPLES[i]
+        else:
+            mu_G /= sum(SVHN_TEST_SAMPLES)
+            for i in range(len(SVHN_TEST_SAMPLES)):
+                mu_c_dict[i] /= SVHN_TEST_SAMPLES[i]
     elif args.dataset == 'cifar10' or args.dataset == 'cifar10_random':
         if isTrain:
             mu_G /= sum(CIFAR10_TRAIN_SAMPLES)
@@ -100,11 +124,21 @@ def compute_Sigma_W(args, model, fc_features, mu_c_dict, dataloader, isTrain=Tru
             Sigma_W /= sum(MNIST_TRAIN_SAMPLES)
         else:
             Sigma_W /= sum(MNIST_TEST_SAMPLES)
+    elif args.dataset == "fashionmnist":
+        if isTrain:
+            Sigma_W /= sum(FASHION_MNIST_TRAIN_SAMPLES)
+        else:
+            Sigma_W /= sum(FASHION_MNIST_TEST_SAMPLES)
     elif args.dataset == 'cifar10' or args.dataset == 'cifar10_random':
         if isTrain:
             Sigma_W /= sum(CIFAR10_TRAIN_SAMPLES)
         else:
             Sigma_W /= sum(CIFAR10_TEST_SAMPLES)
+    elif args.dataset == "svhn":
+        if isTrain:
+            Sigma_W /= sum(SVHN_TRAIN_SAMPLES)
+        else:
+            Sigma_W /= sum(SVHN_TEST_SAMPLES)
 
     return Sigma_W.cpu().numpy()
 
@@ -150,7 +184,7 @@ def compute_Wh_b_relation(W, mu_G, b):
     return res_b.detach().cpu().numpy().item()
 
 
-def compute_ECE(args, model, dataloader, n_bins=15):
+def compute_ECE(args, model, dataloader, fc_features, n_bins=15):
     bin_boundaries = torch.linspace(0, 1, n_bins + 1)
     bin_lowers = bin_boundaries[:-1]
     bin_uppers = bin_boundaries[1:]
@@ -163,9 +197,10 @@ def compute_ECE(args, model, dataloader, n_bins=15):
         inputs, targets = inputs.to(args.device), targets.to(args.device)
 
         with torch.no_grad():
-            outputs = model(inputs)[0].data
-            logits_list.append(F.softmax(outputs, dim=-1))
-            labels_list.append(targets.data)
+            outputs = model(inputs)
+
+        logits_list.append(F.softmax(outputs[0].data, dim=-1))
+        labels_list.append(targets.data)
 
     # Create tensors
     logits_list = torch.cat(logits_list).to(args.device)
@@ -184,7 +219,9 @@ def compute_ECE(args, model, dataloader, n_bins=15):
             avg_confidence_in_bin = confidences[in_bin].mean()
             ece += torch.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
 
-    return ece
+    fc_features.clear()
+
+    return ece.detach().cpu().numpy()  # .item()
 
 
 def main():
@@ -288,6 +325,7 @@ def main():
     with open(args.load_path + 'info.pkl', 'wb') as f:
         pickle.dump(info_dict, f)
 
+
 def add_ece():
     args = parse_eval_args()
 
@@ -315,9 +353,11 @@ def add_ece():
     with open(args.load_path + 'info.pkl', 'rb') as f:
         info_dict = pickle.load(f)
 
+    info_dict["ece_metric_train"] = []
+    info_dict["ece_metric_test"] = []
+
     logfile = open('%s/test_log2.txt' % (args.load_path), 'w')
     for i in range(args.epochs):
-
         model.load_state_dict(torch.load(args.load_path + 'epoch_' + str(i + 1).zfill(3) + '.pth'))
         model.eval()
 
@@ -338,16 +378,15 @@ def add_ece():
         # else:
         #     Wh_b_relation_metric = compute_Wh_b_relation(W, mu_G_train, torch.zeros((W.shape[0],)))
 
-        ece_metric_train = compute_ECE(args, model, trainloader)
-        ece_metric_test = compute_ECE(args, model, testloader)
+        ece_metric_train = compute_ECE(args, model, trainloader, fc_features)
+        ece_metric_test = compute_ECE(args, model, testloader, fc_features)
+
+        torch.cuda.empty_cache()
 
         # info_dict['collapse_metric'].append(collapse_metric)
         # info_dict['ETF_metric'].append(ETF_metric)
         # info_dict['WH_relation_metric'].append(WH_relation_metric)
         # info_dict['Wh_b_relation_metric'].append(Wh_b_relation_metric)
-
-        info_dict["ece_metric_train"] = []
-        info_dict["ece_metric_test"] = []
 
         info_dict['ece_metric_train'].append(ece_metric_train)
         info_dict['ece_metric_test'].append(ece_metric_test)
@@ -367,10 +406,11 @@ def add_ece():
 
         print_and_save(
             '[epoch: %d] | train top1: %.4f | train top5: %.4f | test top1: %.4f | test top5: %.4f | train ECE: %.4f | test ECE: %.4f ' %
-            (i + 1, info_dict['train_acc1'][i], info_dict['train_acc5'][i], info_dict['test_acc1'][i], info_dict['test_acc5'][i], ece_metric_train, ece_metric_test), logfile)
+            (i + 1, info_dict['train_acc1'][i], info_dict['train_acc5'][i], info_dict['test_acc1'][i],
+             info_dict['test_acc5'][i], ece_metric_train, ece_metric_test), logfile)
 
     # TODO: Uncomment me
-    with open(args.load_path + 'info.pkl', 'wb') as f:
+    with open(args.load_path + 'info2.pkl', 'wb') as f:
         pickle.dump(info_dict, f)
 
 
