@@ -1,10 +1,7 @@
 import sys
 
-import torch
-
 import models
 from models.res_adapt import ResNet18_adapt
-from models.vgg import get_vgg13
 from utils import *
 from args import parse_train_args
 from datasets import make_dataset
@@ -82,6 +79,7 @@ def train(args, model, trainloader):
     for epoch_id in range(args.epochs):
 
         trainer(args, model, trainloader, epoch_id, criterion, optimizer, scheduler, logfile)
+
         torch.save(model.state_dict(), args.save_path + "/epoch_" + str(epoch_id + 1).zfill(3) + ".pth")
 
     logfile.close()
@@ -104,10 +102,11 @@ def main():
         model = models.__dict__[args.model](hidden = args.width, depth = args.depth, fc_bias=args.bias, num_classes=num_classes).to(device)
     elif args.model == "ResNet18_adapt":
         model = ResNet18_adapt(width = args.width, num_classes=num_classes, fc_bias=args.bias).to(device)
-    elif args.model == "VGG13":
-        model = get_vgg13(num_classes=num_classes).to(device)
     else:
         model = models.__dict__[args.model](num_classes=num_classes, fc_bias=args.bias, ETF_fc=args.ETF_fc, fixdim=args.fixdim, SOTA=args.SOTA).to(device)
+
+    # from torchsummary import summary
+    # summary(model, input_size=(3, 32, 32), batch_size=1)
 
     train(args, model, trainloader)
 
