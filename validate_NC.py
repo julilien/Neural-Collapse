@@ -294,8 +294,8 @@ def main():
         else:
             Wh_b_relation_metric = compute_Wh_b_relation(W, mu_G_train, torch.zeros((W.shape[0],)))
 
-        ece_metric_train = compute_ECE(args, model, trainloader)
-        ece_metric_test = compute_ECE(args, model, testloader)
+        ece_metric_train = compute_ECE(args, model, trainloader, fc_features)
+        ece_metric_test = compute_ECE(args, model, testloader, fc_features)
 
         info_dict['collapse_metric'].append(collapse_metric)
         info_dict['ETF_metric'].append(ETF_metric)
