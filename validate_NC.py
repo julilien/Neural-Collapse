@@ -415,5 +415,5 @@ def add_ece():
 
 
 if __name__ == "__main__":
-    # main()
-    add_ece()
+    main()
+    # add_ece()
