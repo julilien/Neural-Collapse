@@ -71,7 +71,7 @@ def make_scheduler(args, my_optimizer):
     return scheduler
 
 
-def make_criterion(args):
+def make_criterion(args, num_classes):
     if args.loss == 'CrossEntropy':
         criterion = nn.CrossEntropyLoss()
     elif args.loss == 'MSE':
@@ -79,7 +79,7 @@ def make_criterion(args):
     elif args.loss == 'LS':
         criterion = LabelSmoothingLossCanonical(args.ls_alpha)
     elif args.loss == "LR":
-        criterion = LabelRelaxationLoss(args.lr_alpha)
+        criterion = LabelRelaxationLoss(args.lr_alpha, num_classes=num_classes)
 
     return criterion
 

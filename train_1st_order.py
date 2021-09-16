@@ -66,9 +66,9 @@ def trainer(args, model, trainloader, epoch_id, criterion, optimizer, scheduler,
 
 
 
-def train(args, model, trainloader):
+def train(args, model, trainloader, num_classes):
 
-    criterion = make_criterion(args)
+    criterion = make_criterion(args, num_classes)
     optimizer = make_optimizer(args, model)
     scheduler = make_scheduler(args, optimizer)
 
@@ -108,7 +108,7 @@ def main():
     # from torchsummary import summary
     # summary(model, input_size=(3, 32, 32), batch_size=1)
 
-    train(args, model, trainloader)
+    train(args, model, trainloader, num_classes)
 
 
 if __name__ == "__main__":
